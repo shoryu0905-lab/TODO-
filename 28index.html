@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart-Time Pro: Final Perfect</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --primary: #4f46e5; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --accent: #10b981; --border: #e2e8f0; --danger: #ef4444; }
+    body { font-family: sans-serif; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 90px; }
+    .container { max-width: 600px; margin: 0 auto; padding: 15px; }
+    .card { background: var(--card); border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid var(--border); position: relative; }
+    
+    /* 24hタイムライン */
+    .timeline { position: relative; margin-left: 70px; padding-left: 20px; border-left: 2px solid var(--border); }
+    .timeline-item { position: relative; margin-bottom: 45px; display: flex; align-items: flex-start; }
+    .timeline-time { position: absolute; left: -85px; width: 60px; text-align: right; font-weight: bold; top: 0; font-size: 0.8rem; color: var(--primary); }
+    .timeline-dot-container { position: absolute; left: -27px; top: 0; width: 14px; height: 100%; display: flex; flex-direction: column; align-items: center; }
+    
+    /* ドットと波紋エフェクト (復活) */
+    .timeline-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 2px solid #fff; z-index: 10; position: relative; }
+    .is-active-dot::after {
+      content: ''; position: absolute; top: -4px; left: -4px; width: 16px; height: 16px;
+      border-radius: 50%; background: var(--accent); z-index: -1;
+      animation: ripple 1.5s infinite ease-out;
+    }
+    @keyframes ripple {
+      0% { transform: scale(1); opacity: 0.8; }
+      100% { transform: scale(3); opacity: 0; }
+    }
+    
+    .progress-line-fill { position: absolute; top: 6px; left: 4.5px; width: 5px; z-index: 5; transition: height 0.3s ease; }
+
+    /* 完了状態のスタイル */
+    .task-done { opacity: 0.5; }
+    .task-done b { text-decoration: line-through; color: #94a3b8; }
+
+    /* ボタン・カード */
+    .btn-timer { background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem; cursor: pointer; font-weight: bold; }
+    .btn-timer.stop { background: var(--danger); }
+    .btn-icon { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 0 5px; color: #cbd5e1; }
+    .btn-icon:hover { color: var(--danger); }
+    
+    .task-card { flex: 1; display: flex; flex-direction: column; padding: 12px 15px; border-radius: 10px; background: #fff; border: 1px solid var(--border); transition: 0.2s; }
+    .next-task-card { background: #eff6ff; border: 1px solid #bfdbfe; border-left: 5px solid var(--primary); }
+
+    /* ナビ */
+    nav { position: fixed; bottom: 0; width: 100%; background: #fff; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid var(--border); z-index: 100; }
+    .nav-item { text-align: center; cursor: pointer; flex: 1; color: #94a3b8; font-size: 0.65rem; }
+    .nav-item.active-nav { color: var(--primary); font-weight: bold; }
+    .page { display: none; }
+    .active { display: block; }
+
+    .subject-group { margin-bottom: 10px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .subject-header { padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: white; font-weight: bold; }
+    .subject-body { display: none; padding: 10px; background: #fff; }
+    .subject-body.is-open { display: block; }
+  </style>
+</head>
+<body>
+
+  <div style="background:#fff; padding:10px 15px; border-bottom:1px solid #eee; position:sticky; top:0; z-index:100; display:flex; justify-content:space-between; align-items:center;">
+    <input type="date" id="date-selector" style="border:1px solid #ddd; border-radius:5px; padding:5px; font-size:0.8rem;">
+    <div style="display:flex; gap:5px;">
+      <input type="text" id="user-name-input" placeholder="名前" style="width:60px; padding:5px; border:1px solid #ddd; border-radius:5px; font-size:0.8rem;">
+      <button id="login-btn" style="padding:5px 10px; background:var(--primary); color:white; border:none; border-radius:5px; font-size:0.7rem;">切替</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="top-page" class="page active">
+      <h2 style="margin-top:0;"><span id="display-user"></span>さん</h2>
+      <div class="card" style="text-align: center; background: linear-gradient(135deg, #4f46e5, #818cf8); color: white; padding: 25px;">
+        <div style="opacity: 0.9; font-size: 0.85rem; margin-bottom: 5px;">本日の学習時間</div>
+        <div id="total-time-display" style="font-size: 3rem; font-weight: 800;">0<span style="font-size: 1.2rem; margin-left:5px;">min</span></div>
+      </div>
+      <div id="next-task-container"></div>
+      <div class="card">
+        <div id="stats-text" style="font-size: 0.85rem; margin-bottom: 8px; font-weight: bold;">完了 0 / 予定 0</div>
+        <div style="background:#f1f5f9; height:12px; border-radius:6px; overflow:hidden;"><div id="progress-bar" style="background:var(--primary); height:100%; width:0%; transition:width 0.5s;"></div></div>
+      </div>
+    </div>
+
+    <div id="timeline-page" class="page">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h2 style="margin:0;">⏳ 24h タイムライン</h2>
+        <button onclick="clearToday()" style="font-size:0.75rem; color:var(--danger); border:1px solid var(--danger); background:none; padding:4px 8px; border-radius:5px;">全消去</button>
+      </div>
+      <div id="timeline-container" class="timeline"></div>
+    </div>
+
+    <div id="report-page" class="page">
+      <h2 style="margin:0 0 15px 0;">📊 レポート</h2>
+      
+      <div class="card">
+        <div style="font-size:0.85rem; font-weight:bold; color:var(--primary); margin-bottom:10px;">🏆 週間目標設定</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <input type="number" id="weekly-goal-input" style="width:60px; padding:5px; border:1px solid #ddd; border-radius:5px;">
+          <span style="font-size:0.8rem; color:#64748b;">時間 / 週</span>
+        </div>
+        <div id="weekly-status-text" style="font-size:0.75rem; margin:12px 0 6px 0; color:#475569; font-weight:bold;"></div>
+        <div style="background:#f1f5f9; height:12px; border-radius:6px; overflow:hidden;">
+          <div id="weekly-goal-bar" style="height:100%; width:0%; background:var(--accent); transition: width 0.5s;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-size:0.85rem; font-weight:bold; color:var(--primary); margin-bottom:10px;">📅 週間推移 (min)</div>
+        <canvas id="weeklyChart" height="180"></canvas>
+      </div>
+      <div class="card">
+        <div style="font-size:0.85rem; font-weight:bold; color:var(--primary); margin-bottom:10px;">🍕 今日の比率</div>
+        <div style="max-width: 200px; margin: 0 auto;"><canvas id="studyChart"></canvas></div>
+      </div>
+    </div>
+
+    <div id="list-page" class="page">
+      <h2 style="margin:0 0 15px 0;">📋 マイタスク</h2>
+      <form id="master-form" class="card" style="background:#f8fafc; border:2px dashed #cbd5e1;">
+        <input type="text" id="m-title" placeholder="勉強内容" required style="width:100%; padding:10px; margin-bottom:10px; border-radius:8px; border:1px solid #ddd; box-sizing: border-box;">
+        <div style="display:flex; gap:10px;">
+          <input type="text" id="m-subject" placeholder="教科" style="flex:1; padding:10px; border-radius:8px; border:1px solid #ddd;">
+          <input type="number" id="m-estimate" value="60" style="width:60px; padding:10px; border-radius:8px; border:1px solid #ddd;">
+          <button type="submit" style="background:var(--primary); color:white; border:none; padding:10px 15px; border-radius:8px; font-weight:bold;">登録</button>
+        </div>
+      </form>
+      <div id="master-list-container"></div>
+    </div>
+  </div>
+
+  <nav>
+    <div class="nav-item active-nav" onclick="showPage('top-page')"><div>🏠</div><span>トップ</span></div>
+    <div class="nav-item" onclick="showPage('timeline-page')"><div>⏳</div><span>24h</span></div>
+    <div class="nav-item" onclick="showPage('report-page')"><div>📊</div><span>レポート</span></div>
+    <div class="nav-item" onclick="showPage('list-page')"><div>📋</div><span>リスト</span></div>
+  </nav>
+
+  <script>
+    const STORAGE_KEY = "studyApp_v15_final_wave";
+    let currentUser = "default";
+    let currentDate = new Date().toISOString().split('T')[0];
+    let state = { masterTasks: [], weeklyGoal: 20 };
+    let dailyData = { todayTasks: [], activeTimer: null }; 
+    let openSubjects = new Set();
+    let chartPie = null, chartBar = null;
+
+    function getSubjectColor(s) {
+      const colors = { '数学': '#3b82f6', '英語': '#ef4444', '国語': '#f59e0b', '理科': '#10b981', '社会': '#8b5cf6' };
+      return colors[s] || `hsl(${Math.abs(s.split('').reduce((a,b)=>a+b.charCodeAt(0),0)) % 360}, 65%, 50%)`;
+    }
+    function timeToMin(t) { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
+
+    function init() {
+      const lastUser = localStorage.getItem("last_user");
+      if(lastUser) currentUser = lastUser;
+      loadAllData();
+      bindEvents();
+      render();
+      setInterval(() => { if(dailyData.activeTimer) render(); }, 30000);
+    }
+
+    function loadAllData() {
+      state.masterTasks = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_m_${currentUser}`) || "[]");
+      state.weeklyGoal = localStorage.getItem(`${STORAGE_KEY}_goal_${currentUser}`) || 20;
+      dailyData = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_d_${currentUser}_${currentDate}`) || '{"todayTasks":[], "activeTimer":null}');
+      
+      document.getElementById("display-user").textContent = currentUser;
+      document.getElementById("user-name-input").value = currentUser;
+      document.getElementById("date-selector").value = currentDate;
+      document.getElementById("weekly-goal-input").value = state.weeklyGoal;
+    }
+
+    function saveAllData() {
+      localStorage.setItem(`${STORAGE_KEY}_m_${currentUser}`, JSON.stringify(state.masterTasks));
+      localStorage.setItem(`${STORAGE_KEY}_d_${currentUser}_${currentDate}`, JSON.stringify(dailyData));
+      localStorage.setItem(`${STORAGE_KEY}_goal_${currentUser}`, state.weeklyGoal);
+      localStorage.setItem("last_user", currentUser);
+    }
+
+    function render() {
+      if (dailyData.activeTimer) {
+        const diff = Math.floor((Date.now() - dailyData.activeTimer.startTime) / 60000);
+        if (diff > 0) {
+          const t = dailyData.todayTasks.find(x => x.id === dailyData.activeTimer.id);
+          if (t) { t.actualTime += diff; dailyData.activeTimer.startTime += diff * 60000; saveAllData(); }
+        }
+      }
+
+      // --- TOP PAGE ---
+      const totalToday = dailyData.todayTasks.reduce((s, t) => s + t.actualTime, 0);
+      const doneCount = dailyData.todayTasks.filter(t => t.status === "done").length;
+      document.getElementById("total-time-display").innerHTML = `${totalToday}<span style="font-size:1.2rem;">min</span>`;
+      document.getElementById("stats-text").textContent = `完了 ${doneCount} / 予定 ${dailyData.todayTasks.length}`;
+      document.getElementById("progress-bar").style.width = (dailyData.todayTasks.length ? (doneCount/dailyData.todayTasks.length*100) : 0) + "%";
+
+      const nextTask = dailyData.todayTasks.filter(t => t.status !== "done").sort((a,b) => a.startTime.localeCompare(b.startTime))[0];
+      const nextContainer = document.getElementById("next-task-container");
+      if (nextTask) {
+        const isActive = dailyData.activeTimer?.id === nextTask.id;
+        nextContainer.innerHTML = `
+          <div class="card next-task-card">
+            <div style="font-size:0.75rem; color:var(--primary); font-weight:bold; margin-bottom:8px;">NEXT TASK</div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div><b style="font-size:1.1rem;">${nextTask.title}</b><div style="font-size:0.8rem; color:#64748b;">${nextTask.startTime}〜</div></div>
+              <button class="btn-timer ${isActive?'stop':''}" onclick="toggleTimer('${nextTask.id}')">${isActive?'停止':'開始'}</button>
+            </div>
+          </div>`;
+      } else {
+        nextContainer.innerHTML = `<div class="card" style="text-align:center; color:#94a3b8; font-size:0.85rem;">今日の予定完了！🙌</div>`;
+      }
+
+      // --- TIMELINE PAGE (波紋アニメーション追加) ---
+      const tContainer = document.getElementById("timeline-container");
+      tContainer.innerHTML = dailyData.todayTasks.sort((a,b) => a.startTime.localeCompare(b.startTime)).map(t => {
+        const color = getSubjectColor(t.subject);
+        const isActive = dailyData.activeTimer?.id === t.id;
+        const isDone = t.status === 'done';
+        const lineLen = t.actualTime * 1.5;
+        // 👇 isActive の時に is-active-dot クラスを付与
+        return `
+        <div class="timeline-item" style="height:${Math.max(lineLen + 30, 60)}px">
+          <span class="timeline-time">${t.startTime}</span>
+          <div class="timeline-dot-container">
+            <div class="timeline-dot ${isActive ? 'is-active-dot' : ''}" style="background:${isActive ? 'var(--accent)' : color}; border-color:${isActive ? '#fff' : '#fff'}"></div>
+            <div class="progress-line-fill" style="height:${lineLen}px; background:${color}; opacity: 0.6;"></div>
+          </div>
+          <div class="task-card ${isDone ? 'task-done' : ''}" style="border-left:5px solid ${color}">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <b>${t.title}</b>
+              <div style="display:flex; align-items:center; gap:5px;">
+                <input type="checkbox" ${isDone?'checked':''} onchange="toggleTask('${t.id}')">
+                <button class="btn-icon" onclick="deleteTodayTask('${t.id}')">🗑️</button>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:5px;"><small>${t.actualTime}/${t.estimate}m</small><button class="btn-timer ${isActive?'stop':''}" onclick="toggleTimer('${t.id}')" style="margin-left:auto">${isActive?'⏹':'▶'}</button></div>
+          </div>
+        </div>`;
+      }).join("");
+
+      // --- LIST PAGE ---
+      const mContainer = document.getElementById("master-list-container");
+      const grouped = state.masterTasks.reduce((acc, t) => { (acc[t.subject] = acc[t.subject] || []).push(t); return acc; }, {});
+      mContainer.innerHTML = Object.keys(grouped).map(subject => {
+        const isOpen = openSubjects.has(subject);
+        return `<div class="subject-group">
+          <div class="subject-header" style="background:${getSubjectColor(subject)}" onclick="toggleSubject('${subject}')"><span>${subject}</span><span>${isOpen ? '▲' : '▼'}</span></div>
+          <div class="subject-body ${isOpen ? 'is-open' : ''}">${grouped[subject].map(t => `
+            <div class="task-card" style="flex-direction:row; justify-content:space-between; align-items:center; margin-bottom:5px; padding:8px 12px;">
+              <span><b>${t.title}</b> (${t.estimate}分)</span>
+              <div style="display:flex; gap:8px;">
+                <button onclick="addTodayFromList('${t.id}')" style="padding:4px 8px; font-size:0.7rem; background:${getSubjectColor(subject)}; color:white; border:none; border-radius:4px; cursor:pointer;">追加</button>
+                <button class="btn-icon" onclick="deleteMasterTask('${t.id}')" style="font-size:1rem;">×</button>
+              </div>
+            </div>`).join("")}</div></div>`;
+      }).join("");
+
+      updateCharts();
+    }
+
+    function updateCharts() {
+      let totalWeeklyMin = 0;
+      const dateLabels = []; const dateValues = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i); const dStr = d.toISOString().split('T')[0];
+        dateLabels.push(dStr.slice(5));
+        const data = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_d_${currentUser}_${dStr}`) || '{"todayTasks":[]}');
+        const daySum = data.todayTasks.reduce((s, t) => s + t.actualTime, 0);
+        dateValues.push(daySum); totalWeeklyMin += daySum;
+      }
+
+      const goalMin = (state.weeklyGoal || 0) * 60;
+      const percent = goalMin > 0 ? Math.min((totalWeeklyMin / goalMin) * 100, 100) : 0;
+      document.getElementById("weekly-goal-bar").style.width = percent + "%";
+      document.getElementById("weekly-status-text").textContent = `今週の合計: ${totalWeeklyMin}分 / 目標: ${goalMin}分 (${Math.floor(percent)}%)`;
+
+      if (chartBar) chartBar.destroy();
+      chartBar = new Chart(document.getElementById('weeklyChart'), { type: 'bar', data: { labels: dateLabels, datasets: [{ data: dateValues, backgroundColor: '#818cf8', borderRadius: 5 }] }, options: { plugins: { legend: { display: false } } } });
+
+      const subMap = {}; dailyData.todayTasks.forEach(t => { if(t.actualTime > 0) subMap[t.subject] = (subMap[t.subject]||0) + t.actualTime; });
+      const labels = Object.keys(subMap);
+      if (chartPie) chartPie.destroy();
+      chartPie = new Chart(document.getElementById('studyChart'), { type: 'doughnut', data: { labels: labels.length ? labels : ['なし'], datasets: [{ data: labels.length ? Object.values(subMap) : [1], backgroundColor: labels.length ? labels.map(l=>getSubjectColor(l)) : ['#f1f5f9'], borderWidth: 0 }] }, options: { plugins: { legend: { display: false } }, cutout: '70%' } });
+    }
+
+    // --- 削除関数 ---
+    function deleteMasterTask(id) { if(confirm("リストから削除しますか？")) { state.masterTasks = state.masterTasks.filter(t => t.id !== id); saveAllData(); render(); } }
+    function deleteTodayTask(id) { if(confirm("この予定を削除しますか？")) { if(dailyData.activeTimer?.id === id) dailyData.activeTimer = null; dailyData.todayTasks = dailyData.todayTasks.filter(t => t.id !== id); saveAllData(); render(); } }
+
+    function addTodayFromList(mId) {
+      const mt = state.masterTasks.find(t => t.id === mId);
+      const start = prompt(`${mt.title} 開始時間`, `${String(new Date().getHours()).padStart(2,'0')}:${String(new Date().getMinutes()).padStart(2,'0')}`);
+      if(!start) return;
+      const finalEst = parseInt(prompt(`見積時間（分）`, mt.estimate) || mt.estimate);
+
+      const newS = timeToMin(start);
+      const isOverlap = dailyData.todayTasks.some(t => {
+        const s = timeToMin(t.startTime);
+        const e = s + (t.estimate || 60);
+        return (newS < e && (newS + finalEst) > s);
+      });
+      if (isOverlap && !confirm("時間が重なっています。追加しますか？")) return;
+
+      dailyData.todayTasks.push({ ...mt, id: "t"+Date.now(), startTime: start, estimate: finalEst, actualTime: 0, status: "todo", endTime: null });
+      saveAllData(); render(); showPage('timeline-page');
+    }
+
+    function toggleTimer(id) {
+      const now = new Date(); const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      if (dailyData.activeTimer) {
+        const oldId = dailyData.activeTimer.id;
+        const t = dailyData.todayTasks.find(x => x.id === oldId);
+        if(t) t.endTime = timeStr;
+        dailyData.activeTimer = null;
+        if (oldId === id) { saveAllData(); render(); return; }
+      }
+      const target = dailyData.todayTasks.find(x => x.id === id);
+      if(target) target.endTime = null;
+      dailyData.activeTimer = { id, startTime: Date.now() };
+      saveAllData(); render();
+    }
+
+    function showPage(id) {
+      document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === id));
+      document.querySelectorAll(".nav-item").forEach((n, i) => n.classList.toggle("active-nav", ["top-page", "timeline-page", "report-page", "list-page"][i] === id));
+    }
+    function toggleSubject(s) { if (openSubjects.has(s)) openSubjects.delete(s); else openSubjects.add(s); render(); }
+    function toggleTask(id) { const t = dailyData.todayTasks.find(x => x.id === id); if(t) { t.status = (t.status === "done" ? "todo" : "done"); saveAllData(); render(); } }
+    function clearToday() { if(confirm("今日の予定を全消去しますか？")) { dailyData.todayTasks = []; dailyData.activeTimer = null; saveAllData(); render(); } }
+    
+    function bindEvents() {
+      document.getElementById("login-btn").onclick = () => { currentUser = document.getElementById("user-name-input").value || "default"; loadAllData(); render(); };
+      document.getElementById("date-selector").onchange = (e) => { currentDate = e.target.value; loadAllData(); render(); };
+      document.getElementById("weekly-goal-input").onchange = (e) => { state.weeklyGoal = e.target.value; saveAllData(); updateCharts(); };
+      document.getElementById("master-form").onsubmit = (e) => {
+        e.preventDefault();
+        state.masterTasks.push({ id: "m"+Date.now(), title: document.getElementById("m-title").value, subject: document.getElementById("m-subject").value || "共通", estimate: parseInt(document.getElementById("m-estimate").value) || 60 });
+        saveAllData(); render(); e.target.reset();
+      };
+    }
+
+    init();
+  </script>
+</body>
+</html>
