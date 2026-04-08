@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart-Time Pro: 日本語完全版</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --primary: #4f46e5; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --accent: #7dd3fc; --border: #e2e8f0; --danger: #ef4444; --success: #22c55e; }
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding-bottom: 90px; }
+    .container { max-width: 600px; margin: 0 auto; padding: 15px; }
+    .card { background: var(--card); border-radius: 12px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid var(--border); margin-bottom: 15px; }
+    
+    /* 1. ライブ・タイムライン (画像①②③演出 + 時刻の被り防止) */
+    .timeline { position: relative; margin-left: 80px; padding-left: 25px; border-left: 2px solid var(--border); min-height: 400px; margin-top: 20px; }
+    .timeline-item { position: relative; margin-bottom: 40px; display: flex; align-items: flex-start; }
+    
+    /* 時刻表示：ドットと被らないように間隔（gap）を確保し、開始・終了それぞれの高さに配置 */
+    .time-label { position: absolute; left: -85px; width: 42px; text-align: right; font-weight: bold; font-size: 0.75rem; color: var(--primary); line-height: 14px; }
+    .time-start { top: 0px; }
+    
+    .visual-step-container { position: absolute; left: -33px; top: 0; width: 16px; height: 100%; display: flex; flex-direction: column; align-items: center; }
+    
+    /* ① 開始ドット & パルス演出 */
+    .dot-start { width: 14px; height: 14px; border-radius: 50%; z-index: 10; position: relative; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border); }
+    .pulse::after {
+      content: ''; position: absolute; top: -4px; left: -4px; width: 18px; height: 18px;
+      border-radius: 50%; background: currentColor; z-index: -1;
+      animation: ripple 1.2s infinite ease-out; opacity: 0.6;
+    }
+    @keyframes ripple { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(3); opacity: 0; } }
+
+    /* ② 伸長ライン */
+    .line-dynamic { position: absolute; top: 7px; width: 6px; z-index: 5; transition: height 0.5s linear; border-radius: 0 0 3px 3px; }
+
+    /* ③ 確定終了ドット */
+    .dot-end { position: absolute; width: 14px; height: 14px; border-radius: 50%; z-index: 10; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border); }
+
+    /* 打ち消し線 (完了済み) */
+    .task-done { opacity: 0.5; }
+    .task-done .task-title { text-decoration: line-through; color: #94a3b8; }
+
+    /* 週間目標UI */
+    .goal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: bold; font-size: 0.9rem; color: #3b36db; }
+    .progress-track { background: #f1f5f9; height: 12px; border-radius: 6px; overflow: hidden; margin-top: 12px; border: 1px solid #e2e8f0; }
+    .progress-fill { background: #22c55e; height: 100%; transition: width 0.5s; }
+
+    nav { position: fixed; bottom: 0; width: 100%; background: #fff; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid var(--border); z-index: 100; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); }
+    .nav-item { text-align: center; cursor: pointer; flex: 1; color: #94a3b8; font-size: 0.65rem; padding-top: 5px; }
+    .nav-item.active-nav { color: var(--primary); font-weight: bold; }
+    .page { display: none; }
+    .active { display: block; }
+    
+    .btn-timer { background: var(--accent); color: #0369a1; border: none; padding: 7px 14px; border-radius: 8px; font-size: 0.8rem; cursor: pointer; font-weight: bold; }
+    .btn-timer.stop { background: var(--danger); color: white; }
+    .task-card { flex: 1; padding: 12px; border-radius: 10px; background: #fff; border: 1px solid var(--border); position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .subject-group { margin-bottom: 8px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .subject-header { padding: 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: white; font-weight: bold; }
+    .subject-body { display: none; padding: 10px; background: #fff; }
+    .subject-body.is-open { display: block; }
+  </style>
+</head>
+<body>
+
+  <header style="background:#fff; padding:10px 15px; border-bottom:1px solid #eee; position:sticky; top:0; z-index:100; display:flex; justify-content:space-between; align-items:center;">
+    <input type="date" id="date-selector" style="border:1px solid #ddd; border-radius:5px; padding:5px; font-size:0.8rem; outline:none;">
+    <div style="display:flex; gap:5px;">
+      <input type="text" id="user-input" placeholder="ユーザー名" style="width:70px; padding:5px; border:1px solid #ddd; border-radius:5px; outline:none;">
+      <button onclick="switchUser()" style="padding:5px 10px; background:var(--primary); color:white; border:none; border-radius:5px; font-size:0.7rem; cursor:pointer;">切替/追加</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div id="top-page" class="page active">
+      <h2 style="margin-top:0;"><span id="display-user"></span> さんの学習</h2>
+      <div class="card" style="text-align: center; background: linear-gradient(135deg, #4f46e5, #06b6d4); color: white; padding: 25px;">
+        <div style="opacity: 0.8; font-size: 0.8rem; margin-bottom: 5px;">本日の学習時間</div>
+        <div id="total-time-display" style="font-size: 3.5rem; font-weight: 900;">0<span style="font-size: 1.2rem; margin-left:5px;">分</span></div>
+      </div>
+    </div>
+
+    <div id="timeline-page" class="page">
+      <h2 style="margin:0 0 15px 0;">⏳ 24h タイムライン</h2>
+      <div id="timeline-container" class="timeline"></div>
+    </div>
+
+    <div id="report-page" class="page">
+      <h2 style="margin:0 0 15px 0;">📊 学習分析レポート</h2>
+      <div class="card">
+        <div class="goal-header">
+          <span>🏆 週間目標設定</span>
+          <div style="display:flex; gap:5px;">
+            <button onclick="adjGoal(-1)" style="border:1px solid #ddd; background:#fff; border-radius:4px; cursor:pointer;">↑</button>
+            <button onclick="adjGoal(1)" style="border:1px solid #ddd; background:#fff; border-radius:4px; cursor:pointer;">↓</button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+          <input type="number" id="goal-input" value="20" style="width:55px; border:1px solid #ddd; padding:5px; border-radius:4px; font-weight:bold; outline:none;"> <span style="font-size:0.9rem;">時間 / 週</span>
+        </div>
+        <div id="weekly-status-text" style="font-size:0.85rem; font-weight:bold;">今週の合計: 0分 / 目標: 1200分 (0%)</div>
+        <div class="progress-track"><div id="weekly-progress-fill" class="progress-fill" style="width:0%"></div></div>
+      </div>
+      <div class="card">
+        <div style="font-size:0.8rem; font-weight:bold; color:var(--primary); margin-bottom:10px;">週間推移 (タップで詳細表示)</div>
+        <canvas id="weeklyChart" height="180"></canvas>
+      </div>
+      <div class="card">
+        <div id="pie-date-label" style="font-size:0.85rem; font-weight:bold; color:var(--primary); margin-bottom:15px;">比率・詳細</div>
+        <div style="max-width: 180px; margin: 0 auto;"><canvas id="studyChart"></canvas></div>
+        <div id="pie-legend" style="margin-top:20px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; font-size:0.75rem;"></div>
+      </div>
+    </div>
+
+    <div id="list-page" class="page">
+      <h2 style="margin:0 0 15px 0;">📋 学習リスト</h2>
+      <form id="master-form" class="card" style="border:2px dashed #cbd5e1;">
+        <input type="text" id="m-title" placeholder="勉強内容（例：英単語）" required style="width:100%; padding:10px; margin-bottom:10px; border:1px solid #ddd; border-radius:8px; box-sizing:border-box; outline:none;">
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="m-subject" placeholder="教科" style="flex:1; padding:10px; border:1px solid #ddd; border-radius:8px; outline:none;">
+          <input type="number" id="m-estimate" value="60" style="width:60px; padding:10px; border:1px solid #ddd; border-radius:8px; outline:none;">
+          <button type="submit" style="background:var(--primary); color:white; border:none; padding:10px 15px; border-radius:8px; font-weight:bold; cursor:pointer;">追加</button>
+        </div>
+      </form>
+      <div id="master-list-container"></div>
+    </div>
+  </div>
+
+  <nav>
+    <div class="nav-item active-nav" onclick="showPage('top-page')"><div style="font-size:1.2rem;margin-bottom:2px;">🏠</div><span>ホーム</span></div>
+    <div class="nav-item" onclick="showPage('timeline-page')"><div style="font-size:1.2rem;margin-bottom:2px;">⏳</div><span>24h</span></div>
+    <div class="nav-item" onclick="showPage('report-page')"><div style="font-size:1.2rem;margin-bottom:2px;">📊</div><span>レポート</span></div>
+    <div class="nav-item" onclick="showPage('list-page')"><div style="font-size:1.2rem;margin-bottom:2px;">📋</div><span>リスト</span></div>
+  </nav>
+
+  <script>
+    const STORAGE_KEY = "SmartTime_V5_Perfect";
+    let currentUser = "ユーザー1";
+    let currentDate = new Date().toISOString().split('T')[0];
+    let state = { masterTasks: [], weeklyGoalHours: 20 };
+    let dailyData = { todayTasks: [], activeTimer: null }; 
+    let openSubjects = new Set();
+    let chartPie = null, chartBar = null;
+
+    // カラー連動
+    function getSubjectColor(s) {
+      const colors = { '数学': '#3b82f6', '英語': '#ef4444', '国語': '#f59e0b', '理科': '#10b981', '社会': '#8b5cf6' };
+      return colors[s] || `hsl(${Math.abs(s.split('').reduce((a,b)=>a+b.charCodeAt(0),0)) % 360}, 65%, 60%)`;
+    }
+
+    function init() {
+      const lastUser = localStorage.getItem("last_user_v5");
+      if(lastUser) currentUser = lastUser;
+      loadAllData();
+      bindEvents();
+      render();
+      // バックグラウンドでも時刻計算で正確な計測を維持するため、定期的にrenderを実行
+      setInterval(() => { if(dailyData.activeTimer) render(); }, 5000); 
+    }
+
+    function loadAllData() {
+      state = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_m_${currentUser}`) || '{"masterTasks":[], "weeklyGoalHours": 20}');
+      dailyData = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_d_${currentUser}_${currentDate}`) || '{"todayTasks":[], "activeTimer":null}');
+      document.getElementById("date-selector").value = currentDate;
+      document.getElementById("user-input").value = currentUser;
+      document.getElementById("display-user").textContent = currentUser;
+    }
+
+    function saveAllData() {
+      localStorage.setItem(`${STORAGE_KEY}_m_${currentUser}`, JSON.stringify(state));
+      localStorage.setItem(`${STORAGE_KEY}_d_${currentUser}_${currentDate}`, JSON.stringify(dailyData));
+      localStorage.setItem("last_user_v5", currentUser);
+    }
+
+    function render() {
+      // タイマー計算 (現在時刻との差分で高精度を維持)
+      if (dailyData.activeTimer) {
+        const diff = Math.floor((Date.now() - dailyData.activeTimer.startTime) / 60000);
+        if (diff > 0) {
+          const t = dailyData.todayTasks.find(x => x.id === dailyData.activeTimer.id);
+          if (t) { t.actualTime += diff; dailyData.activeTimer.startTime += diff * 60000; saveAllData(); }
+        }
+      }
+
+      updateWeeklyGoalUI();
+      const totalMin = dailyData.todayTasks.reduce((s, t) => s + t.actualTime, 0);
+      document.getElementById("total-time-display").innerHTML = `${totalMin}<span style="font-size:1.2rem;">分</span>`;
+
+      // タイムライン描画 (①②③演出 ＋ 開始・終了時間の干渉防止)
+      const tContainer = document.getElementById("timeline-container");
+      tContainer.innerHTML = dailyData.todayTasks.sort((a,b) => a.startTime.localeCompare(b.startTime)).map(t => {
+        const color = getSubjectColor(t.subject);
+        const isActive = dailyData.activeTimer?.id === t.id;
+        const isDone = t.status === 'done';
+        const lineH = Math.max(t.actualTime * 1.6, isActive ? 10 : 0); 
+        const containerH = Math.max(lineH + 50, 85);
+        
+        // 終了時刻の計算
+        let timeElements = `<span class="time-label time-start">${t.startTime}</span>`;
+        if (!isActive && (t.actualTime > 0 || isDone)) {
+          const [h, m] = t.startTime.split(':').map(Number);
+          const end = new Date(0,0,0, h, m + t.actualTime);
+          const endStr = `${String(end.getHours()).padStart(2,'0')}:${String(end.getMinutes()).padStart(2,'0')}`;
+          // 終了時間はドットと同じ高さ(lineH + 7px)に配置し、被りを防ぐ
+          timeElements += `<span class="time-label time-end" style="top:${lineH + 7}px; color:#64748b;">${endStr}</span>`;
+        }
+
+        return `
+        <div class="timeline-item" style="height:${containerH}px">
+          ${timeElements}
+          <div class="visual-step-container">
+            <div class="dot-start ${isActive ? 'pulse' : ''}" style="background:${color}; color:${color}"></div>
+            <div class="line-dynamic" style="height:${lineH}px; background:${color}; opacity:${isActive?1:0.6}"></div>
+            ${(!isActive && (t.actualTime > 0 || isDone)) ? `<div class="dot-end" style="top:${lineH+7}px; background:${color}"></div>` : ''}
+          </div>
+          <div class="task-card ${isDone ? 'task-done' : ''}" style="border-left:5px solid ${color}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <b class="task-title" style="font-size:0.9rem; margin-right: 10px; word-break: break-all;">${t.title}</b>
+              <div style="display:flex; gap:12px; align-items:center;">
+                <input type="checkbox" style="transform: scale(1.2);" ${isDone?'checked':''} onchange="toggleTask('${t.id}')">
+                <button onclick="deleteTodayTask('${t.id}')" style="background:none; border:none; cursor:pointer; color:#ccc; font-size:1.2rem; line-height:1; padding:0;">×</button>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:auto;">
+               <div style="font-size:0.75rem; color:#64748b;">実積 ${t.actualTime} / 目安 ${t.estimate} 分</div>
+               <button class="btn-timer ${isActive?'stop':''}" onclick="toggleTimer('${t.id}')">${isActive?'停止':'開始'}</button>
+            </div>
+          </div>
+        </div>`;
+      }).join("");
+
+      updateCharts();
+
+      // リスト描画 (スマート整理: 折りたたみグループ化)
+      const mContainer = document.getElementById("master-list-container");
+      const grouped = state.masterTasks.reduce((acc, t) => { (acc[t.subject] = acc[t.subject] || []).push(t); return acc; }, {});
+      mContainer.innerHTML = Object.keys(grouped).map(sub => {
+        const isOpen = openSubjects.has(sub);
+        return `<div class="subject-group">
+          <div class="subject-header" style="background:${getSubjectColor(sub)}" onclick="toggleSubject('${sub}')"><span>${sub}</span><span>${isOpen ? '▲' : '▼'}</span></div>
+          <div class="subject-body ${isOpen ? 'is-open' : ''}">${grouped[sub].map(t => `
+            <div class="task-card" style="flex-direction:row; justify-content:space-between; align-items:center; margin-bottom:6px; padding:10px;">
+              <span><b style="font-size:0.9rem;">${t.title}</b> <small style="color:#64748b;">(${t.estimate}分)</small></span>
+              <div style="display:flex; gap:12px; align-items:center;">
+                <button onclick="addTodayFromList('${t.id}')" style="padding:6px 10px; font-size:0.75rem; background:${getSubjectColor(sub)}; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">予定追加</button>
+                <button onclick="deleteMasterTask('${t.id}')" style="background:none; border:none; cursor:pointer; color:#cbd5e1; font-size:1.2rem; line-height:1; padding:0;">×</button>
+              </div>
+            </div>`).join("")}</div></div>`;
+      }).join("");
+    }
+
+    // クイック調整: 予定追加時の現在時刻取得＆重複アラート
+    function addTodayFromList(mId) {
+      const mt = state.masterTasks.find(t => t.id === mId);
+      const now = new Date();
+      const currentStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      
+      const start = prompt(`開始時間を選択してください`, currentStr);
+      if(!start) return;
+
+      const isOverlap = dailyData.todayTasks.some(t => t.startTime === start);
+      if(isOverlap) {
+        if(!confirm("⚠️ 既に同じ開始時間の予定があります。重複して追加しますか？")) return;
+      }
+
+      const est = parseInt(prompt(`目安時間(分)`, mt.estimate) || mt.estimate);
+      dailyData.todayTasks.push({ ...mt, id: "t"+Date.now(), startTime: start, estimate: est, actualTime: 0, status: "todo" });
+      saveAllData(); render(); showPage('timeline-page');
+    }
+
+    function updateWeeklyGoalUI() {
+      let weekTotalMin = 0;
+      const today = new Date();
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(); d.setDate(today.getDate() - today.getDay() + i);
+        const dStr = d.toISOString().split('T')[0];
+        const data = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_d_${currentUser}_${dStr}`) || '{"todayTasks":[]}');
+        weekTotalMin += data.todayTasks.reduce((s, t) => s + t.actualTime, 0);
+      }
+      const goalMin = state.weeklyGoalHours * 60;
+      const percent = Math.min(100, Math.round((weekTotalMin / goalMin) * 100)) || 0;
+      document.getElementById("weekly-status-text").textContent = `今週の合計: ${weekTotalMin}分 / 目標: ${goalMin}分 (${percent}%)`;
+      document.getElementById("weekly-progress-fill").style.width = percent + "%";
+    }
+
+    // シームレスな日付切り替え付きチャート
+    function updateCharts() {
+      const dates = []; const values = []; const fullDates = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i); const dStr = d.toISOString().split('T')[0];
+        fullDates.push(dStr); dates.push(dStr.slice(5));
+        const dayData = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_d_${currentUser}_${dStr}`) || '{"todayTasks":[]}');
+        values.push(dayData.todayTasks.reduce((s, t) => s + t.actualTime, 0));
+      }
+      if (chartBar) chartBar.destroy();
+      chartBar = new Chart(document.getElementById('weeklyChart'), {
+        type: 'bar',
+        data: { labels: dates, datasets: [{ data: values, backgroundColor: '#818cf8', borderRadius: 4 }] },
+        options: { plugins: { legend: { display: false } }, onClick: (e, el) => { if(el.length) updatePieChart(fullDates[el[0].index]); } }
+      });
+      updatePieChart(currentDate);
+    }
+
+    function updatePieChart(dateStr) {
+      document.getElementById("pie-date-label").innerHTML = `比率詳細: <span style="color:var(--text);">${dateStr}</span>`;
+      const data = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_d_${currentUser}_${dateStr}`) || '{"todayTasks":[]}');
+      const subMap = {};
+      data.todayTasks.forEach(t => { if(t.actualTime > 0) subMap[t.subject] = (subMap[t.subject]||0) + t.actualTime; });
+      const labels = Object.keys(subMap);
+      if (chartPie) chartPie.destroy();
+      chartPie = new Chart(document.getElementById('studyChart'), {
+        type: 'doughnut',
+        data: { labels: labels.length ? labels : ['なし'], datasets: [{ data: labels.length ? Object.values(subMap) : [1], backgroundColor: labels.length ? labels.map(l=>getSubjectColor(l)) : ['#e2e8f0'], borderWidth: 0 }] },
+        options: { plugins: { legend: { display: false } }, cutout: '75%' }
+      });
+      document.getElementById("pie-legend").innerHTML = labels.map(l => `<div style="display:flex; align-items:center; gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:${getSubjectColor(l)}"></span>${l}: <b>${subMap[l]}分</b></div>`).join('');
+    }
+
+    function toggleTimer(id) {
+      if (dailyData.activeTimer) {
+        const oldId = dailyData.activeTimer.id;
+        dailyData.activeTimer = null;
+        if (oldId === id) { saveAllData(); render(); return; }
+      }
+      dailyData.activeTimer = { id, startTime: Date.now() };
+      saveAllData(); render();
+    }
+
+    function toggleTask(id) { 
+      const t = dailyData.todayTasks.find(x => x.id === id); 
+      if(t) { t.status = (t.status === "done" ? "todo" : "done"); saveAllData(); render(); } 
+    }
+
+    function switchUser() { 
+      const name = document.getElementById("user-input").value; 
+      if(name) { currentUser = name; loadAllData(); render(); } 
+    }
+
+    // 削除機能の完全復旧
+    function deleteMasterTask(id) { if(confirm("リストから削除しますか？")) { state.masterTasks = state.masterTasks.filter(t => t.id !== id); saveAllData(); render(); } }
+    function deleteTodayTask(id) { if(confirm("24hタイムラインから予定を削除しますか？")) { dailyData.todayTasks = dailyData.todayTasks.filter(t => t.id !== id); if(dailyData.activeTimer?.id === id) dailyData.activeTimer = null; saveAllData(); render(); } }
+    
+    function adjGoal(v) { state.weeklyGoalHours += v; document.getElementById("goal-input").value = state.weeklyGoalHours; saveAllData(); render(); }
+    function showPage(id) { document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === id)); document.querySelectorAll(".nav-item").forEach((n, i) => n.classList.toggle("active-nav", ["top-page", "timeline-page", "report-page", "list-page"][i] === id)); }
+    function toggleSubject(s) { if (openSubjects.has(s)) openSubjects.delete(s); else openSubjects.add(s); render(); }
+
+    function bindEvents() {
+      document.getElementById("date-selector").onchange = (e) => { currentDate = e.target.value; loadAllData(); render(); };
+      document.getElementById("goal-input").onchange = (e) => { state.weeklyGoalHours = parseInt(e.target.value); saveAllData(); render(); };
+      document.getElementById("master-form").onsubmit = (e) => {
+        e.preventDefault();
+        state.masterTasks.push({ id: "m"+Date.now(), title: document.getElementById("m-title").value, subject: document.getElementById("m-subject").value || "共通", estimate: parseInt(document.getElementById("m-estimate").value) || 60 });
+        saveAllData(); render(); e.target.reset();
+      };
+    }
+
+    init();
+  </script>
+</body>
+</html>
